@@ -1,0 +1,524 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title></title>
+    <meta charset="utf-8" />
+    <link href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous">
+    <script type="text/javascript" src="js/jquery-2.1.4.js"></script>
+    <script src="js/Common.js"></script>
+    <script src="js/Geometry.js"></script>
+    <script src="js/CanvasLayer.js"></script>
+    <script src="js/Cars.js"></script>
+    <script src='https://api.tiles.mapbox.com/mapbox-gl-js/v0.43.0/mapbox-gl.js'></script>
+    <link href='https://api.tiles.mapbox.com/mapbox-gl-js/v0.43.0/mapbox-gl.css' rel='stylesheet' />
+    <script src="http://echarts.baidu.com/resource/echarts-gl-latest/mapboxgl-token.js"></script>
+    <script src="https://d3js.org/d3.v4.min.js"></script>
+    <script src="http://d3js.org/d3.v3.min.js"></script>
+    <link rel="stylesheet" type="text/css" href="css/style.css">
+
+</head>
+<body>
+<script src='https://api.tiles.mapbox.com/mapbox.js/plugins/turf/v2.0.0/turf.min.js' charset='utf-8'></script>
+<div id="map"></div>
+
+<div id="menu">
+    <ul>
+        <li>
+            <button id="btnLoad" type="button" class="btn btn-default btn-lg reload">
+                <span class="glyphicon glyphicon-refresh" style="color: #587493;"></span> Load All Taxis
+            </button>
+            <button  type="button" class="btn btn-default btn-xs stop" style="display: none"> █▌Stop</button>
+        </li>
+
+        <li>
+            <label for="list">Load One Taxi:</label>
+            <select name="list" id="list"></select>
+            <button id="btnStart" class="btn" style="display: inline ">⇒ Start</button>
+            <button id="btnStopOne" class="btn" style="display: inline ">█▌Stop</button>
+        </li>
+        <li>
+            <button id="btnLine" type="button" class="btn">Show the Trace</button>
+        </li>
+
+    </ul>
+</div>
+
+<div class="dateTimeBox box">
+    <div class = "time"><span class="glyphicon glyphicon-time"></span> <span class = "readableTime"></span></div>
+    <div id="timeFactor">Time Factor: <span class = "timeFactor"></span> minutes per second</div>
+
+    <div class= "controls">
+        <button type="button" class="btn btn-default btn-xs backward"><span class="glyphicon glyphicon-backward" style="color: #587493;"></span>   backward</button>
+        <button  type="button" class="btn btn-default btn-xs continue" style="display: none">► Continue</button>
+        <button  type="button" class="btn btn-default btn-xs pause"><span class="glyphicon glyphicon-pause" style="color: #587493;"></span>pause</button>
+        <button type="button" class="btn btn-default btn-xs forward">forward   <span class="glyphicon glyphicon-forward" style="color: #587493;"></span></button>
+    </div>
+
+</div>
+
+<div class="legendBox box">
+    <div class = "boxHeader"><span class="glyphicon glyphicon-map-marker"></span> 车流量/10min</div>
+    <div class = 'legendItem'>
+        <svg>
+            <path class="trip1" d="M10,10L25,25" ></path>
+        </svg><p> <=5 Counts:<span class = "sparseCounts"></span></p> </div>
+    <div class = 'legendItem'>
+        <svg>
+            <path class="trip2"  d="M10,10L25,25" ></path>
+        </svg><p> 5-15  Counts:<span class = "normalCounts"></span></p></div>
+    <div class = 'legendItem'>
+        <svg>
+            <path class="trip3" d="M10,10L25,25" ></path>
+        </svg><p> >15   Counts:<span class = "crowdCounts"></span></p></div>
+
+</div>
+
+<div class="areaChartBox box">
+</div>
+
+
+<div class="circle">
+    <button class="button" id="btnUp"><span class="glyphicon glyphicon-chevron-up" style="color: #587493;"></span></button>
+    <button class="button" id="btnRight"><span class="glyphicon glyphicon-chevron-up" style="color: #587493;"></span></button>
+    <button class="button" id="btnDown"><span class="glyphicon glyphicon-chevron-up" style="color: #587493;"></span></button>
+    <button class="button" id="btnLeft"><span class="glyphicon glyphicon-chevron-up" style="color: #587493;"></span></button>
+</div>
+
+
+<script>
+    mapboxgl.accessToken = 'pk.eyJ1IjoiZGVuZzExMDIiLCJhIjoiY2pmdGsxbDBlMGNtbTJxbnZ6dnJneTJxZSJ9.1G3fP3JuuVBB6trf-7IBQQ';
+
+    var deltaPitch = 10;
+    var deltaBearing = 25;
+
+    function easing(t) {
+        return t * (2 - t);
+    }
+
+    var map = new mapboxgl.Map({
+        style:'mapbox://styles/mapbox/dark-v9',
+        center: [121.479891,31.23],
+        zoom: 14,
+        pitch: 60,
+        bearing: -17.6,
+        //attributionControl:true,
+        //interactive: false,
+        container: 'map'
+    });
+
+
+    map.on('load', function() {
+
+        // Insert the layer beneath any symbol layer.
+        var layers = map.getStyle().layers;//获得所有layers
+        var labelLayerId;
+        for (var i = 0; i < layers.length; i++) {
+            if (layers[i].type === 'symbol' && layers[i].layout['text-field']) {
+                labelLayerId = layers[i].id;//得到类型是symbol的layer.ID，并放入labelLayerId
+                break;
+            }
+        }
+       /* map.addSource("shanghai",{
+            "type":"geojson",
+            "data":"data/shanghai.json"
+        });*/
+
+        map.addLayer({
+            'id': '3d-buildings',
+            'source': 'composite',
+            'source-layer': 'building',
+            'filter': ['==', 'extrude', 'true'],
+            'type': 'fill-extrusion',
+            'minzoom': 10,
+            'paint': {
+                'fill-extrusion-color': '#aaa',
+
+                // use an 'interpolate' expression to add a smooth transition effect to the
+                // buildings as the user zooms in
+                'fill-extrusion-height': [
+                    "interpolate", ["linear"], ["zoom"],
+                    10, 0,
+                    10.05, ["get", "height"]
+                ],
+                'fill-extrusion-base': [
+                    "interpolate", ["linear"], ["zoom"],
+                    10, 0,
+                    10.05, ["get", "min_height"]
+                ],
+                'fill-extrusion-opacity': .6
+            }
+        }, labelLayerId);
+
+    });
+
+    $('#btnUp').click(function(){
+        map.easeTo({
+            pitch: map.getPitch()+ deltaPitch,
+            easing: easing
+        });
+    });
+
+    $('#btnDown').click(function(){
+        map.easeTo({
+            pitch: map.getPitch()- deltaPitch,
+            easing: easing
+        });
+    });
+
+
+    $('#btnLeft').click(function(){
+        map.easeTo({
+            bearing: map.getBearing() - deltaBearing,
+            easing: easing
+        });
+    });
+
+    $('#btnRight').click(function(){
+        map.easeTo({
+            bearing: map.getBearing() + deltaBearing,
+            easing: easing
+        });
+    });
+
+    //area chart
+    var margin = {top: 30, right: 20, bottom: 20, left: 40},
+        areaChartWidth = $(window).width() - margin.left - margin.right -40,
+        areaChartHeight = 140 - margin.top - margin.bottom;
+
+    var x = d3.scale.linear()
+        .range([0, areaChartWidth]);
+
+    var y = d3.scale.linear()
+        .range([areaChartHeight, 0]);
+
+    var xAxis = d3.svg.axis()
+        .scale(x)
+        .orient("bottom");
+
+    var yAxis = d3.svg.axis()
+        .scale(y)
+        .orient("left")
+        .ticks(4);
+
+    var area = d3.svg.area()
+        .x(function(d) { return x(d.time); })
+        .y0(areaChartHeight)
+        .y1(function(d) { return y(d.carCounts); });
+
+    var areaChartSvg = d3.select(".areaChartBox").append("svg")
+        .attr("width", areaChartWidth + margin.left + margin.right)
+        .attr("height", areaChartHeight + margin.top + margin.bottom)
+        .attr("class","areaChart")
+        .append("g")
+        .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+
+    var markerLine = areaChartSvg.append('line')
+        .attr('x1', 0)
+        .attr('y1', 0)
+        .attr('x2', 0)
+        .attr('y2', areaChartHeight )
+        .attr("class","markerLine");
+
+    x.domain([7, 12]);
+    y.domain([0, 800]);
+
+    var dummyData = [];
+
+    var chartPath = areaChartSvg.append("path")
+        .datum(dummyData)
+        .attr("class", "area");
+
+    areaChartSvg.append("g")
+        .attr("class", "x axis")
+        .attr("transform", "translate(0," + areaChartHeight + ")")
+        .call(xAxis)
+        .append("text")
+        .attr("y", 9)
+        .attr("x", 39)
+        .attr("dy", ".71em")
+        .style("text-anchor", "end")
+        .text("Hour");
+
+    areaChartSvg.append("g")
+        .attr("class", "y axis")
+        .call(yAxis)
+        .append("text")
+        .attr("transform", "rotate(-90)")
+        .attr("y", 6)
+        .attr("dy", ".71em")
+        .style("text-anchor", "end")
+        .text("Flows (ea)");
+
+
+    //页面时间显示
+    var dateBegin = new Date("2007-02-18 7:00:00"),
+        dateCurrent = dateBegin;
+
+    var drawAll=true;
+
+    var timeFactor =1;
+    var dateModel = timeFactor*60,
+        fps = 60;
+    $('.timeFactor').html(timeFactor);
+
+    //初始化数据
+    var tarr=[];
+    var o = document.getElementById("list");//获得list
+
+    var Ajax = function ()
+    {
+        $.ajaxSettings.async = false;//同步进行
+        $.getJSON ("data/shanghai7h-12h2.txt", function (data)
+        {
+            tarr=data;
+            tarr.forEach(function(pts) {
+                var op = document.createElement("option");
+                op.setAttribute("value",pts[0].carID);
+                op.innerHTML = pts[0].carID;
+                o.appendChild(op);
+
+                var pathPoints = [];
+                for (var i = 0; i < pts.length; i++) {
+                    pathPoints.push(new MarkerPoint({
+                        carID:pts[i].carID,
+                        longitude: pts[i].lon,
+                        latitude: pts[i].lat,
+                        time: new Date(pts[i].time),
+                        count:pts[i].count
+                    }))
+                }
+                var markLine = new MarkLine({
+                    map: map,
+                    path: pathPoints
+                });
+console.log(pathPoints[0]);
+                animationLayers[0].geometries.push(markLine);
+
+            });
+
+            $("select").each(function(i,n){
+                var options = "";
+                $(n).find("option").each(function(j,m){
+                    if(options.indexOf($(m)[0].outerHTML) == -1)
+                    {
+                        options += $(m)[0].outerHTML;
+                    }
+                });
+                $(n).html(options);
+            });
+
+            o.onchange=function(){
+                drawAll=false;
+                $("#btnStart").show();
+                var selected=o.options[o.selectedIndex].value;
+
+                console.log(selected.toString());
+
+                var tarrSelected=[];
+                for (var i=0;i<tarr.length;i++){
+                    if (tarr[i][0].carID==selected.toString()){
+                        tarrSelected.push(tarr[i]);
+                    }
+                }
+                //只选一个，为啥遍历
+                console.log(tarrSelected);
+                tarrSelected.forEach(function(pts) {
+                    var pathSelected=[];
+                    for (var i = 0; i < pts.length; i++) {
+                        pathSelected.push(new MarkerPoint({
+                            carID:pts[i].carID,
+                            longitude: pts[i].lon,
+                            latitude: pts[i].lat,
+                            time: new Date(pts[i].time),
+                            count:pts[i].count
+                        }))
+                    }
+                    var markLineSelected = new MarkLine({
+                        map: map,
+                        path: pathSelected,
+                    });
+
+                    animationLayers[1].geometries.push(markLineSelected);
+
+                });
+                dateCurrent=new Date(tarrSelected[0][0].time);
+                map.setCenter([tarrSelected[0][0].lon,tarrSelected[0][0].lat]);
+                map.setZoom(16);
+
+            };
+
+
+        });
+    };
+
+
+    //定义canvas图层
+    var animationLayers=[];
+    for(var i=0;i<2;i++){
+        animationLayers[i]=new CanvasLayer({
+            map: map
+        });
+    }
+
+    Ajax();
+
+    $('.reload').click(function(){//任意class中成分均可选中
+        $('.reload').hide();
+        $('.stop').show();
+
+        map.setZoom(14);
+        map.setCenter([121.479891,31.23])
+        load=setInterval(function (){
+            //datePrev=dateCurrent;
+            dateCurrent = new Date(dateCurrent.getTime() + (dateModel * 1000 / fps));
+            //animationLayers[0]=newPath(datePrev,dateCurrent,tarr,animationLayers[0]);
+            animationLayers[0].dateCurrent = dateCurrent;
+            $('.readableTime').text(dateCurrent.toLocaleTimeString());
+            animationLayers[0]._drawCircle();
+            $('.sparseCounts').text(animationLayers[0].sparseCounts);
+            $('.normalCounts').text(animationLayers[0].normalCounts);
+            $('.crowdCounts').text(animationLayers[0].crowdCounts);
+
+            var decimalHour = dateCurrent.getHours() + (dateCurrent.getMinutes()/60)+(dateCurrent.getSeconds()/3600);
+            dummyData.push({
+                time: decimalHour,
+                carCounts: animationLayers[0].carCounts
+            });
+
+            chartPath.attr("d", area);
+
+
+
+            markerLine
+                .attr('x1', x(decimalHour))
+                .attr('x2', x(decimalHour));
+
+        }, 1000 / fps);
+
+    });
+
+
+    $('.stop').click(function(){
+        window.location.reload();
+    });
+
+    $("#btnStart").click(function (){
+        $("#btnStopOne").show();
+        animationLayers[1].drawAll=false;
+        loadOne=setInterval(function (){
+            dateCurrent = new Date(dateCurrent.getTime() + (dateModel * 1000 / fps));
+            animationLayers[1].dateCurrent = dateCurrent;
+            $('.readableTime').text(dateCurrent.toLocaleTimeString());
+            animationLayers[1]._drawImg();
+        }, 1000 / fps);
+
+    })
+
+    $('#btnStopOne').click(function(){
+        drawAll=true;
+        window.location.reload();
+        $("#btnStart").hide();
+        $('#btnStopOne').hide();
+
+    });
+
+    $('.pause').click(function(){
+        if(drawAll==true){
+            window.clearInterval(load);
+        }else if(drawAll==false){
+            window.clearInterval(loadOne);
+        }
+
+        $('.pause').hide();
+        $('.continue').show();
+
+    });
+
+    $('.continue').click(function() {
+        if (drawAll==true){
+            load=setInterval(function (){
+                dateCurrent = new Date(dateCurrent.getTime() + (dateModel * 1000 / fps));
+                animationLayers[0].dateCurrent = dateCurrent;
+                $('.readableTime').text(dateCurrent.toLocaleTimeString());
+                animationLayers[0]._drawCircle();
+                $('.sparseCounts').text(animationLayers[0].sparseCounts);
+                $('.normalCounts').text(animationLayers[0].normalCounts);
+                $('.crowdCounts').text(animationLayers[0].crowdCounts);
+
+                var decimalHour = dateCurrent.getHours() + (dateCurrent.getMinutes()/60)+(dateCurrent.getSeconds()/3600);
+                dummyData.push({
+                    time: decimalHour,
+                    carCounts: animationLayers[0].carCounts
+                });
+
+                chartPath.attr("d", area);
+
+                markerLine
+                    .attr('x1', x(decimalHour))
+                    .attr('x2', x(decimalHour));
+            }, 1000 / fps);
+        }else if (drawAll==false){
+            loadOne=setInterval(function (){
+                dateCurrent = new Date(dateCurrent.getTime() + (dateModel * 1000 / fps));
+                animationLayers[1].dateCurrent = dateCurrent;
+                $('.readableTime').text(dateCurrent.toLocaleTimeString());
+                animationLayers[1]._drawImg();
+            }, 1000 / fps);
+
+        }
+
+        $('.continue').hide();
+        $('.pause').show();
+    })
+
+    $('.backward').click(function () {
+
+        dateCurrent = new Date(dateCurrent.getTime() - (10*60 * 1000 ));
+
+        var decimalHour = dateCurrent.getHours() + (dateCurrent.getMinutes()/60)+(dateCurrent.getSeconds()/3600);
+        dummyData.push({
+            time: decimalHour,
+            carCounts: animationLayers[0].carCounts
+        });
+
+        chartPath.attr("d", area);
+
+
+        markerLine
+            .attr('x1', x(decimalHour))
+            .attr('x2', x(decimalHour));
+
+
+    });
+
+    $('.forward').click(function () {
+        animationLayers[0].animationFlag=false;
+
+        dateCurrent = new Date(dateCurrent.getTime() + (10*60 * 1000 ));
+        console.log(dateCurrent);
+        setTimeout(function () {
+            animationLayers[0].animationFlag=true;
+        },600);
+
+
+        var decimalHour = dateCurrent.getHours() + (dateCurrent.getMinutes()/60)+(dateCurrent.getSeconds()/3600);
+        dummyData.push({
+            time: decimalHour,
+            carCounts: animationLayers[0].carCounts
+
+        });
+
+        chartPath.attr("d", area);
+        markerLine
+            .attr('x1', x(decimalHour))
+            .attr('x2', x(decimalHour));
+
+
+    });
+
+
+</script>
+</body>
+</html>
